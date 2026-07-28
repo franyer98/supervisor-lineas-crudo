@@ -26,6 +26,7 @@ let state = {
   gpsTramo: null,
   gpsEv: null,
   tracking: { watchId: null, active: false, points: [], startTs: null },
+  liveLocation: { watchId: null, marker: null, accuracyCircle: null },
 };
 
 // ---------------- Recorrido GPS (tracking) ----------------
@@ -138,7 +139,8 @@ function showView(name) {
   $all('.view').forEach(v => v.classList.remove('active'));
   $('#view-' + name).classList.add('active');
   $all('.bottomnav button').forEach(b => b.classList.toggle('active', b.dataset.view === name));
-  if (name === 'mapa') setTimeout(initMapIfNeeded, 50);
+  if (name === 'mapa') { setTimeout(initMapIfNeeded, 50); startLiveLocation(); }
+  else { stopLiveLocation(); }
 }
 $all('.bottomnav button').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
 
@@ -562,6 +564,37 @@ window.cerrarEvento = async function (id) {
 };
 
 // ---------------- MAPA ----------------
+function startLiveLocation() {
+  if (!navigator.geolocation) { toast('GPS no disponible en este dispositivo'); return; }
+  if (state.liveLocation.watchId != null) return; // ya activo
+  state.liveLocation.watchId = navigator.geolocation.watchPosition(
+    (pos) => updateLiveMarker(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
+    (err) => { /* silencioso: el mapa sigue funcionando sin el punto en vivo */ },
+    { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 }
+  );
+}
+function stopLiveLocation() {
+  if (state.liveLocation.watchId != null) navigator.geolocation.clearWatch(state.liveLocation.watchId);
+  state.liveLocation.watchId = null;
+  if (state.liveLocation.marker) { state.map && state.map.removeLayer(state.liveLocation.marker); state.liveLocation.marker = null; }
+  if (state.liveLocation.accuracyCircle) { state.map && state.map.removeLayer(state.liveLocation.accuracyCircle); state.liveLocation.accuracyCircle = null; }
+}
+function updateLiveMarker(lat, lng, accuracy) {
+  if (!state.map) return;
+  if (!state.liveLocation.marker) {
+    const icon = L.divIcon({
+      className: '',
+      html: '<div class="live-marker"><div class="pulse"></div><div class="dot">🚶</div></div>',
+      iconSize: [26, 26], iconAnchor: [13, 13],
+    });
+    state.liveLocation.marker = L.marker([lat, lng], { icon, zIndexOffset: 1000 }).addTo(state.map);
+    state.liveLocation.accuracyCircle = L.circle([lat, lng], { radius: accuracy || 15, color: '#5B8AA6', weight: 1, fillOpacity: 0.08 }).addTo(state.map);
+  } else {
+    state.liveLocation.marker.setLatLng([lat, lng]);
+    state.liveLocation.accuracyCircle.setLatLng([lat, lng]).setRadius(accuracy || 15);
+  }
+}
+
 function initMapIfNeeded() {
   if (state.map) { state.map.invalidateSize(); renderMapMarkers(); return; }
   state.map = L.map('map').setView([4.15, -72.6], 9); // Meta, Colombia aprox.
@@ -571,7 +604,7 @@ function initMapIfNeeded() {
   }).addTo(state.map);
   renderMapMarkers();
   navigator.geolocation && navigator.geolocation.getCurrentPosition(
-    (pos) => state.map.setView([pos.coords.latitude, pos.coords.longitude], 13),
+    (pos) => { state.map.setView([pos.coords.latitude, pos.coords.longitude], 13); updateLiveMarker(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy); },
     () => {}
   );
 }
