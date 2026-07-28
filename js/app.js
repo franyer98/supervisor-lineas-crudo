@@ -25,7 +25,70 @@ let state = {
   pendingFotosEv: [],
   gpsTramo: null,
   gpsEv: null,
+  tracking: { watchId: null, active: false, points: [], startTs: null },
 };
+
+// ---------------- Recorrido GPS (tracking) ----------------
+function haversineMeters(a, b) {
+  const R = 6371000;
+  const toRad = (d) => d * Math.PI / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+function routeDistanceKm(points) {
+  if (!points || points.length < 2) return 0;
+  let m = 0;
+  for (let i = 1; i < points.length; i++) m += haversineMeters(points[i - 1], points[i]);
+  return m / 1000;
+}
+function updateTrackStats() {
+  const el = $('#trackStats');
+  const pts = state.tracking.points;
+  if (state.tracking.active) {
+    const km = routeDistanceKm(pts).toFixed(2);
+    const mins = state.tracking.startTs ? Math.round((Date.now() - state.tracking.startTs) / 60000) : 0;
+    el.textContent = `● Grabando… ${pts.length} puntos · ${km} km · ${mins} min`;
+    el.classList.add('recording');
+  } else if (pts.length >= 2) {
+    const km = routeDistanceKm(pts).toFixed(2);
+    el.textContent = `Recorrido guardado: ${pts.length} puntos · ${km} km`;
+    el.classList.remove('recording');
+  } else {
+    el.textContent = 'Sin recorrido grabado';
+    el.classList.remove('recording');
+  }
+}
+function startTracking() {
+  if (!navigator.geolocation) { toast('GPS no disponible en este dispositivo'); return; }
+  state.tracking.points = [];
+  state.tracking.active = true;
+  state.tracking.startTs = Date.now();
+  $('#btnIniciarRecorrido').style.display = 'none';
+  $('#btnDetenerRecorrido').style.display = '';
+  toast('Grabando recorrido — no cierres la app');
+  state.tracking.watchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      state.tracking.points.push({ lat: pos.coords.latitude, lng: pos.coords.longitude, ts: Date.now() });
+      updateTrackStats();
+    },
+    (err) => toast('GPS: ' + err.message),
+    { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 }
+  );
+  updateTrackStats();
+}
+function stopTracking() {
+  if (state.tracking.watchId != null) navigator.geolocation.clearWatch(state.tracking.watchId);
+  state.tracking.watchId = null;
+  state.tracking.active = false;
+  $('#btnIniciarRecorrido').style.display = '';
+  $('#btnDetenerRecorrido').style.display = 'none';
+  updateTrackStats();
+  if (state.tracking.points.length >= 2) toast('Recorrido detenido y listo para guardar');
+}
+$('#btnIniciarRecorrido').addEventListener('click', startTracking);
+$('#btnDetenerRecorrido').addEventListener('click', stopTracking);
 
 // ---------------- Utilidades ----------------
 function $(sel) { return document.querySelector(sel); }
@@ -81,8 +144,17 @@ $all('.bottomnav button').forEach(b => b.addEventListener('click', () => showVie
 
 function openSheet(id) { $('#' + id).classList.add('active'); }
 function closeSheet(id) { $('#' + id).classList.remove('active'); }
-$all('.sheet-close').forEach(b => b.addEventListener('click', () => b.closest('.sheet-overlay').classList.remove('active')));
-$all('.sheet-overlay').forEach(ov => ov.addEventListener('click', (e) => { if (e.target === ov) ov.classList.remove('active'); }));
+$all('.sheet-close').forEach(b => b.addEventListener('click', () => {
+  const ov = b.closest('.sheet-overlay');
+  if (ov.id === 'sheetTramo' && state.tracking.active) stopTracking();
+  ov.classList.remove('active');
+}));
+$all('.sheet-overlay').forEach(ov => ov.addEventListener('click', (e) => {
+  if (e.target === ov) {
+    if (ov.id === 'sheetTramo' && state.tracking.active) stopTracking();
+    ov.classList.remove('active');
+  }
+}));
 $all('[data-open]').forEach(b => b.addEventListener('click', () => {
   closeSheet('sheetElegir');
   openSheet(b.dataset.open);
@@ -192,7 +264,7 @@ function renderTramos() {
         <div>
           <div class="card-title">${t.codigo} <span style="color:var(--text-faint);font-weight:400;">· ${t.tipo}</span></div>
           <div class="card-meta">${t.nombre || ''}</div>
-          <div class="card-meta"><span class="mono">${t.facilidad}</span>${t.diametro ? ' · Ø' + t.diametro + '"' : ''}${t.lat ? ' · GPS ✓' : ''}</div>
+          <div class="card-meta"><span class="mono">${t.facilidad}</span>${t.diametro ? ' · Ø' + t.diametro + '"' : ''}${t.ruta && t.ruta.length >= 2 ? ' · 🛤️ ' + routeDistanceKm(t.ruta).toFixed(2) + ' km' : (t.lat ? ' · GPS ✓' : '')}</div>
         </div>
         <span class="badge ${est}">${label}</span>
       </div>
@@ -216,13 +288,15 @@ function showTramoDetalle(id) {
   $('#tramoDetalleContenido').innerHTML = `
     <div class="sheet-header"><h2>${t.codigo}</h2><button class="sheet-close" onclick="closeSheet('sheetTramoDetalle')">✕</button></div>
     <div class="card-meta" style="margin-bottom:12px;">${t.nombre || ''} · ${t.tipo} · ${t.facilidad}${t.diametro ? ' · Ø' + t.diametro + '"' : ''}</div>
-    ${t.lat ? `<div class="gps-row" style="margin-bottom:12px;"><span>${t.lat.toFixed(5)}, ${t.lng.toFixed(5)}</span></div>` : ''}
+    ${t.lat ? `<div class="gps-row" style="margin-bottom:8px;"><span>${t.lat.toFixed(5)}, ${t.lng.toFixed(5)}</span></div>` : ''}
+    ${t.ruta && t.ruta.length >= 2 ? `<div class="gps-row" style="margin-bottom:12px;"><span>🛤️ Recorrido grabado: ${t.ruta.length} puntos · ${routeDistanceKm(t.ruta).toFixed(2)} km</span></div>` : ''}
     ${t.notas ? `<div class="card" style="margin-bottom:14px;">${t.notas}</div>` : ''}
     <div class="section-heading"><h2>Inspecciones (${inspecciones.length})</h2></div>
     ${inspecciones.slice(0, 5).map(i => `<div class="card"><div class="card-row"><div class="card-meta">${fmtDate(i.createdAt)} · ${i.inspector || ''}</div><span class="badge ${i.resultado}">${i.resultado === 'obs' ? 'Observación' : 'OK'}</span></div></div>`).join('') || '<div class="card-meta">Sin registros.</div>'}
     <div class="section-heading"><h2>Eventos (${eventos.length})</h2></div>
     ${eventos.slice(0, 5).map(e => `<div class="card" data-ev-link="${e.id}"><div class="card-row"><div><div class="card-title">${e.tipo}</div><div class="card-meta">${fmtDate(e.createdAt)}</div></div><span class="badge ${e.estado}">${e.estado}</span></div></div>`).join('') || '<div class="card-meta">Sin registros.</div>'}
-    <button class="btn danger block" style="margin-top:16px;" onclick="deleteTramo('${t.id}')">Eliminar tramo</button>
+    <button class="btn block" style="margin-top:16px;" onclick="editarTramo('${t.id}')">✎ Editar / re-grabar recorrido</button>
+    <button class="btn danger block" style="margin-top:10px;" onclick="deleteTramo('${t.id}')">Eliminar tramo</button>
   `;
   $all('#tramoDetalleContenido [data-ev-link]').forEach(c => c.addEventListener('click', () => {
     closeSheet('sheetTramoDetalle');
@@ -240,9 +314,15 @@ window.deleteTramo = async function (id) {
 };
 
 // ---------------- Formulario TRAMO ----------------
+function stopTrackingIfActive() {
+  if (state.tracking.active) stopTracking();
+}
+
 function resetTramoForm() {
   state.editingTramoId = null;
   state.gpsTramo = null;
+  stopTrackingIfActive();
+  state.tracking.points = [];
   $('#tramoFormTitulo').textContent = 'Nuevo tramo';
   $('#tramoCodigo').value = '';
   $('#tramoNombre').value = '';
@@ -251,8 +331,29 @@ function resetTramoForm() {
   $('#tramoDiametro').value = '';
   $('#tramoNotas').value = '';
   $('#tramoGpsLabel').textContent = 'Sin capturar';
+  updateTrackStats();
 }
 $('[data-open="sheetTramo"]').addEventListener('click', resetTramoForm);
+
+window.editarTramo = function (id) {
+  const t = state.tramos.find(x => x.id === id);
+  if (!t) return;
+  closeSheet('sheetTramoDetalle');
+  state.editingTramoId = t.id;
+  state.gpsTramo = (t.lat != null) ? { lat: t.lat, lng: t.lng } : null;
+  stopTrackingIfActive();
+  state.tracking.points = Array.isArray(t.ruta) ? t.ruta.slice() : [];
+  $('#tramoFormTitulo').textContent = 'Editar tramo';
+  $('#tramoCodigo').value = t.codigo || '';
+  $('#tramoNombre').value = t.nombre || '';
+  $('#tramoTipo').value = t.tipo || 'troncal';
+  $('#tramoFacilidad').value = t.facilidad || 'CPF-1';
+  $('#tramoDiametro').value = t.diametro || '';
+  $('#tramoNotas').value = t.notas || '';
+  $('#tramoGpsLabel').textContent = t.lat != null ? `${t.lat.toFixed(5)}, ${t.lng.toFixed(5)}` : 'Sin capturar';
+  updateTrackStats();
+  openSheet('sheetTramo');
+};
 
 $('#btnCapturarGpsTramo').addEventListener('click', () => capturarGps((lat, lng) => {
   state.gpsTramo = { lat, lng };
@@ -282,8 +383,15 @@ $('#btnGuardarTramo').addEventListener('click', async () => {
     notas: $('#tramoNotas').value.trim(),
     lat: state.gpsTramo ? state.gpsTramo.lat : null,
     lng: state.gpsTramo ? state.gpsTramo.lng : null,
+    ruta: state.tracking.points.length >= 2 ? state.tracking.points.slice() : null,
     createdAt: Date.now(),
   };
+  // Si no se capturó un punto único pero sí hay recorrido, usamos el primer punto del recorrido.
+  if (obj.lat == null && obj.ruta && obj.ruta.length) {
+    obj.lat = obj.ruta[0].lat;
+    obj.lng = obj.ruta[0].lng;
+  }
+  stopTrackingIfActive();
   await DB.put('tramos', obj);
   closeSheet('sheetTramo');
   toast('Tramo guardado');
@@ -473,10 +581,15 @@ function renderMapMarkers() {
   state.mapLayers.forEach(l => state.map.removeLayer(l));
   state.mapLayers = [];
   state.tramos.forEach(t => {
-    if (t.lat == null) return;
-    const m = L.circleMarker([t.lat, t.lng], { radius: 7, color: '#5B8AA6', fillColor: '#5B8AA6', fillOpacity: 0.85, weight: 2 })
-      .addTo(state.map).bindPopup(`<b>${t.codigo}</b><br>${t.tipo} · ${t.facilidad}`);
-    state.mapLayers.push(m);
+    if (t.ruta && t.ruta.length >= 2) {
+      const line = L.polyline(t.ruta.map(p => [p.lat, p.lng]), { color: '#5B8AA6', weight: 4, opacity: 0.85 })
+        .addTo(state.map).bindPopup(`<b>${t.codigo}</b><br>${t.tipo} · ${t.facilidad} · ${routeDistanceKm(t.ruta).toFixed(2)} km`);
+      state.mapLayers.push(line);
+    } else if (t.lat != null) {
+      const m = L.circleMarker([t.lat, t.lng], { radius: 7, color: '#5B8AA6', fillColor: '#5B8AA6', fillOpacity: 0.85, weight: 2 })
+        .addTo(state.map).bindPopup(`<b>${t.codigo}</b><br>${t.tipo} · ${t.facilidad}`);
+      state.mapLayers.push(m);
+    }
   });
   state.eventos.forEach(e => {
     if (e.lat == null) return;

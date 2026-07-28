@@ -238,6 +238,14 @@ main { padding: 16px; max-width: 720px; margin: 0 auto; }
 }
 .gps-row button { color: var(--steel); font-family: var(--font-body); font-weight: 600; font-size: 12.5px; flex-shrink: 0; }
 
+.track-panel {
+  background: var(--panel-raised); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 12px; margin-top: 4px;
+}
+.track-stats { font-family: var(--font-mono); font-size: 13px; color: var(--text); }
+.track-stats.recording { color: var(--amber); }
+.track-panel .btn { flex: 1; padding: 10px 12px; font-size: 13px; }
+
 /* ---------- Map ---------- */
 #map { height: 46vh; min-height: 280px; border-radius: var(--radius); border: 1px solid var(--line); }
 .map-legend { display: flex; gap: 14px; font-size: 11px; color: var(--text-dim); margin: 8px 0 4px; flex-wrap: wrap; }

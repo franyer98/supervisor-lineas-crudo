@@ -59,7 +59,7 @@
   <section class="view" id="view-mapa">
     <div id="map"></div>
     <div class="map-legend">
-      <span><i style="background:var(--steel)"></i>Tramo</span>
+      <span><i style="background:var(--steel)"></i>Tramo / recorrido</span>
       <span><i style="background:var(--danger)"></i>Evento abierto</span>
       <span><i style="background:var(--text-faint)"></i>Evento cerrado</span>
     </div>
@@ -120,12 +120,24 @@
     </select>
     <label>Diámetro (pulg)</label>
     <input id="tramoDiametro" type="number" step="0.1" placeholder="Ej. 12">
-    <label>Coordenadas</label>
+    <label>Coordenadas (punto único, opcional si grabas el recorrido)</label>
     <div class="gps-row">
       <span id="tramoGpsLabel">Sin capturar</span>
       <button id="btnCapturarGpsTramo">📡 Usar mi ubicación</button>
     </div>
+
+    <label>Recorrido de la línea</label>
+    <div class="track-panel">
+      <div class="track-stats" id="trackStats">Sin recorrido grabado</div>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button type="button" class="btn primary" id="btnIniciarRecorrido">▶ Iniciar recorrido</button>
+        <button type="button" class="btn danger" id="btnDetenerRecorrido" style="display:none;">⏹ Detener</button>
+      </div>
+      <p class="map-note">Mantén la app abierta y la pantalla encendida mientras caminas la línea: el GPS se guarda cada pocos segundos. Se pausa si bloqueas el teléfono o cambias de app.</p>
+    </div>
+
     <label>Notas</label>
+
     <textarea id="tramoNotas" rows="2" placeholder="Material, año de instalación, observaciones generales..."></textarea>
     <button class="btn primary block" id="btnGuardarTramo" style="margin-top:16px;">Guardar tramo</button>
   </div>
