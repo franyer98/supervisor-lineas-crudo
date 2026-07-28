@@ -25,7 +25,7 @@ let state = {
   pendingFotosEv: [],
   gpsTramo: null,
   gpsEv: null,
-  tracking: { watchId: null, active: false, points: [], startTs: null },
+  tracking: { watchId: null, active: false, points: [], startTs: null, nativeWatcherId: null },
   liveLocation: { watchId: null, marker: null, accuracyCircle: null },
   wakeLock: null,
 };
@@ -78,15 +78,13 @@ document.addEventListener('visibilitychange', async () => {
   }
 });
 
-function startTracking() {
+function isNativeBG() {
+  return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()
+    && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundGeolocation);
+}
+
+function startBrowserWatch() {
   if (!navigator.geolocation) { toast('GPS no disponible en este dispositivo'); return; }
-  state.tracking.points = [];
-  state.tracking.active = true;
-  state.tracking.startTs = Date.now();
-  $('#btnIniciarRecorrido').style.display = 'none';
-  $('#btnDetenerRecorrido').style.display = '';
-  toast('Grabando recorrido — no cierres la app');
-  requestWakeLock();
   state.tracking.watchId = navigator.geolocation.watchPosition(
     (pos) => {
       state.tracking.points.push({ lat: pos.coords.latitude, lng: pos.coords.longitude, ts: Date.now() });
@@ -95,9 +93,52 @@ function startTracking() {
     (err) => toast('GPS: ' + err.message),
     { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 }
   );
+}
+
+async function startTracking() {
+  state.tracking.points = [];
+  state.tracking.active = true;
+  state.tracking.startTs = Date.now();
+  $('#btnIniciarRecorrido').style.display = 'none';
+  $('#btnDetenerRecorrido').style.display = '';
+
+  if (isNativeBG()) {
+    toast('Grabando recorrido en segundo plano');
+    try {
+      const watcherId = await window.Capacitor.Plugins.BackgroundGeolocation.addWatcher(
+        {
+          backgroundMessage: 'Grabando el recorrido del tramo. Toca para volver a la app.',
+          backgroundTitle: 'Supervisor de Líneas — rastreo activo',
+          requestPermissions: true,
+          stale: false,
+          distanceFilter: 3,
+        },
+        (location, error) => {
+          if (error) { toast('GPS: ' + error.message); return; }
+          if (location) {
+            state.tracking.points.push({ lat: location.latitude, lng: location.longitude, ts: location.time || Date.now() });
+            updateTrackStats();
+          }
+        }
+      );
+      state.tracking.nativeWatcherId = watcherId;
+    } catch (e) {
+      toast('No se pudo iniciar el rastreo nativo, uso el GPS del navegador');
+      startBrowserWatch();
+      requestWakeLock();
+    }
+  } else {
+    toast('Grabando recorrido — no cierres la app');
+    startBrowserWatch();
+    requestWakeLock();
+  }
   updateTrackStats();
 }
-function stopTracking() {
+async function stopTracking() {
+  if (state.tracking.nativeWatcherId) {
+    try { await window.Capacitor.Plugins.BackgroundGeolocation.removeWatcher({ id: state.tracking.nativeWatcherId }); } catch (e) {}
+    state.tracking.nativeWatcherId = null;
+  }
   if (state.tracking.watchId != null) navigator.geolocation.clearWatch(state.tracking.watchId);
   state.tracking.watchId = null;
   state.tracking.active = false;
