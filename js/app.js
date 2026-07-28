@@ -27,6 +27,7 @@ let state = {
   gpsEv: null,
   tracking: { watchId: null, active: false, points: [], startTs: null },
   liveLocation: { watchId: null, marker: null, accuracyCircle: null },
+  wakeLock: null,
 };
 
 // ---------------- Recorrido GPS (tracking) ----------------
@@ -61,6 +62,22 @@ function updateTrackStats() {
     el.classList.remove('recording');
   }
 }
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    state.wakeLock = await navigator.wakeLock.request('screen');
+    state.wakeLock.addEventListener('release', () => { state.wakeLock = null; });
+  } catch (e) { /* el navegador puede negarlo, seguimos sin bloquear la app */ }
+}
+async function releaseWakeLock() {
+  if (state.wakeLock) { try { await state.wakeLock.release(); } catch (e) {} state.wakeLock = null; }
+}
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible' && state.tracking.active && !state.wakeLock) {
+    await requestWakeLock();
+  }
+});
+
 function startTracking() {
   if (!navigator.geolocation) { toast('GPS no disponible en este dispositivo'); return; }
   state.tracking.points = [];
@@ -69,6 +86,7 @@ function startTracking() {
   $('#btnIniciarRecorrido').style.display = 'none';
   $('#btnDetenerRecorrido').style.display = '';
   toast('Grabando recorrido — no cierres la app');
+  requestWakeLock();
   state.tracking.watchId = navigator.geolocation.watchPosition(
     (pos) => {
       state.tracking.points.push({ lat: pos.coords.latitude, lng: pos.coords.longitude, ts: Date.now() });
@@ -83,6 +101,7 @@ function stopTracking() {
   if (state.tracking.watchId != null) navigator.geolocation.clearWatch(state.tracking.watchId);
   state.tracking.watchId = null;
   state.tracking.active = false;
+  releaseWakeLock();
   $('#btnIniciarRecorrido').style.display = '';
   $('#btnDetenerRecorrido').style.display = 'none';
   updateTrackStats();

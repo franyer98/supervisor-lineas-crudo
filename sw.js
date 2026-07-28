@@ -1,5 +1,5 @@
 // sw.js — cachea el "app shell" y tiles del mapa para que todo funcione sin señal.
-const APP_CACHE = 'pipeline-app-v3';
+const APP_CACHE = 'pipeline-app-v4';
 const TILE_CACHE = 'pipeline-tiles-v1';
 
 const APP_SHELL = [
